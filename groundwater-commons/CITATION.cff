@@ -1,0 +1,50 @@
+abstract: "Groundwater is critical to maintain global food security, environmental\
+  \ flows, and millions of rural livelihoods in the face of climate change. Although\
+  \ a third of Earth\u2019s largest groundwater basins are being depleted by irrigated\
+  \ agriculture, little is known about the conditions that would lead resource users\
+  \ to comply with groundwater conservation policies. To address this, we developed\
+  \ an agent-based model of irrigated agriculture rooted in principles of human cooperation\
+  \ and collective action, grounded on the largest dataset of cultural values in existence:\
+  \ The World Values Survey Wave 6 (n=90,350). Simulations of three major aquifer\
+  \ systems currently facing unsustainable demands\u2014the Punjab (India/Pakistan),\
+  \ the Central Valley (USA), and the Murray-Darling Basin (Australia)\u2014reveal\
+  \ tipping points where social norms and collective attitudes towards groundwater\
+  \ conservation shift abruptly with small changes in cultural values and enforcement\
+  \ provisions. We find that these tipping points are amplified by group size and\
+  \ most effectively invoked through group processes and social capital. Overall,\
+  \ our study presents a new powerful tool for groundwater management that can be\
+  \ used to evaluate how regulatory compliance is contingent upon cultural, socioeconomic,\
+  \ institutional, and physical constraints and conditions, and its susceptibility\
+  \ to change beyond thresholds. Managing for these thresholds may help avoid unsustainable\
+  \ groundwater development, reduce monitoring and enforcement costs, coordinate regulation\
+  \ of transboundary aquifers, and increase the resilience of communities to future\
+  \ drought and changes in regional climate. Although we focus on groundwater, our\
+  \ methods and findings and their usefulness in designing resource management plans\
+  \ and policies apply broadly."
+authors:
+- affiliation: CSIRO Land & Water
+  email: juan.castilla@csiro.au
+  family-names: Castilla-Rho
+  given-names: Juan
+- family-names: Rojas
+  given-names: Rodrigo
+cff-version: 1.2.0
+date-released: '2017-09-16'
+identifiers:
+- type: url
+  value: https://www.comses.net/codebases/5634/releases/1.2.0/
+keywords:
+- common pool resource
+- cooperation
+- cultural theory
+- flowlogo
+- groundwater management
+- regulatory compliance
+- social norms
+- world values survey
+license: GPL-3.0
+message: If you use this software, please cite it using the metadata from this file.
+title: The Groundwater Commons Game
+type: software
+url: https://www.comses.net/codebases/5634/releases/1.2.0/
+version: 1.2.0

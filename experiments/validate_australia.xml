@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE experiments SYSTEM "behaviorspace.dtd">
+<experiments>
+  <experiment name="validate_australia" repetitions="100" runMetricsEveryStep="false">
+    <setup>
+let old-pumping-cap pumping-cap
+let old-max-monitoring-capacity max-monitoring-capacity
+let old-fine-magnitude fine-magnitude
+let old-S-enforcement-cost S-enforcement-cost
+let old-S-reputation S-reputation
+let old-voluntary-compliance-level voluntary-compliance-level
+let old-rule-breaker-level rule-breaker-level
+let old-metanorm? metanorm?
+let old-monitoring-style monitoring-style
+let old-enforcement-strategy enforcement-strategy
+let old-graduated-sanctions? graduated-sanctions?
+
+set num-farmers 10
+SETUP-EXPERIMENT
+
+set pumping-cap 0.2
+set max-monitoring-capacity 0.1
+set fine-magnitude 0.1
+set voluntary-compliance-level 0
+set rule-breaker-level 0
+set metanorm? false
+set monitoring-style "flat"
+set enforcement-strategy "random"
+set graduated-sanctions? false
+set economy? "Australia: Cotton(S), Vetch(W)"
+
+repeat 100 [go]
+reset-ticks
+set year 0
+
+set pumping-cap old-pumping-cap
+set max-monitoring-capacity old-max-monitoring-capacity
+set fine-magnitude old-fine-magnitude
+set S-enforcement-cost old-S-enforcement-cost
+set S-reputation old-S-reputation
+set voluntary-compliance-level old-voluntary-compliance-level
+set rule-breaker-level old-rule-breaker-level
+set metanorm? old-metanorm?
+set monitoring-style old-monitoring-style
+set enforcement-strategy old-enforcement-strategy
+set graduated-sanctions? old-graduated-sanctions?
+update-voluntary-compliance
+update-rule-breakers
+    </setup>
+    <go>go</go>
+    <timeLimit steps="100"/>
+    <metric>TS-compliance</metric>
+    <metric>TS-boldness</metric>
+    <metric>TS-vengefulness</metric>
+    <metric>TS-norm-strength</metric>
+    <metric>TS-drawdowns-mean</metric>
+    <metric>TS-total-breaches</metric>
+    <enumeratedValueSet variable="pumping-cap">
+      <value value="0.2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-monitoring-capacity">
+      <value value="0.1"/>
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="fine-magnitude">
+      <value value="0.1"/>
+      <value value="0.9"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="S-enforcement-cost">
+      <value value="0.2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="S-reputation">
+      <value value="0.8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="voluntary-compliance-level">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="rule-breaker-level">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="metanorm?">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="monitoring-style">
+      <value value="&quot;flat&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="enforcement-strategy">
+      <value value="&quot;random&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="graduated-sanctions?">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+</experiments>

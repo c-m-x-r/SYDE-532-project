@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# NetLogo installations and archives (large binaries)
+NetLogo-6.4.0-64/
+NetLogo 7.0.3/
+NetLogo-6.4.0-64.tgz
+NetLogo-7.0.3-64.tgz
+*.zip
+*.tgz
+
+# Simulation results (generated output)
+results/
+
+# Generated figures
+figures/
+
+# JVM crash logs
+hs_err_pid*.log
+
+# Data files
+*.csv
+
+# Local working files
+etc/
