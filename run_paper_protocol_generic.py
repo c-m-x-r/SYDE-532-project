@@ -57,7 +57,18 @@ CASE_STUDIES = {
         "S-enforcement-cost": 0.25,
         "S-reputation": 0.40,      # 1 - 0.60
     },
+    "freemarket": {
+        "num-farmers": 50,
+        "economy": "Free Market: Generic Cash Crop(S+W)",
+        "S-enforcement-cost": 0.35,  # Grid = 0.35 (moderate hierarchy)
+        "S-reputation": 0.65,        # 1 - Group = 1 - 0.35 (individualistic)
+    },
 }
+
+# --- PV sweep parameters ---
+PV_SCENARIOS = [0.0, 0.5, 1.0]   # fraction of farmers with panels
+PV_WATER_REDUCTION = 0.30         # 30% IWA reduction from shading
+PV_INCOME_BONUS = 400             # $/ha/season solar income (conservative)
 
 SCENARIOS = [
     ("mf",  0.1, 0.1),
@@ -102,13 +113,14 @@ def run_batch(args):
     nl.command("set social-model? true")
 
     records = []
-    for i, (scenario, M, F, rep, seed) in enumerate(tasks):
+    for i, (scenario, M, F, pv_frac, rep, seed) in enumerate(tasks):
         try:
             nl.command(f"random-seed {seed}")
             nl.command(f"set num-farmers {case_params['num-farmers']}")
             nl.command("SETUP-EXPERIMENT")
 
-            # Fixed params
+            # Fixed params — set AFTER SETUP-EXPERIMENT because setup-GWmodel
+            # calls clear-all which resets all globals to 0.
             nl.command(f"set pumping-cap 0.2")
             nl.command(f"set S-enforcement-cost {case_params['S-enforcement-cost']}")
             nl.command(f"set S-reputation {case_params['S-reputation']}")
@@ -119,6 +131,12 @@ def run_batch(args):
             nl.command('set enforcement-strategy "random"')
             nl.command("set graduated-sanctions? false")
             nl.command(f'set economy? "{case_params["economy"]}"')
+
+            # PV params and setup — must follow SETUP-EXPERIMENT (ca clears globals)
+            nl.command(f"set pv-adoption-fraction {pv_frac}")
+            nl.command(f"set pv-water-reduction {PV_WATER_REDUCTION}")
+            nl.command(f"set pv-income-bonus {PV_INCOME_BONUS}")
+            nl.command("SETUP-PV")
 
             # 50 years lax regulation
             nl.command("set max-monitoring-capacity 0.1")
@@ -145,6 +163,7 @@ def run_batch(args):
                     "fine-magnitude":          F,
                     "S-enforcement-cost":      case_params["S-enforcement-cost"],
                     "S-reputation":            case_params["S-reputation"],
+                    "pv-adoption-fraction":    pv_frac,
                 }
                 for m in METRICS:
                     row[m] = ts[m][yr] if yr < len(ts[m]) else float("nan")
@@ -184,12 +203,14 @@ def main():
     print(f"  S-enforcement-cost: {case_params['S-enforcement-cost']}")
     print(f"  S-reputation:       {case_params['S-reputation']}")
 
-    # Build task list
+    # Build task list — PV sweep only for freemarket; others use pv=0
+    pv_fracs = PV_SCENARIOS if case_name == "freemarket" else [0.0]
     tasks = []
-    for scenario_idx, (scenario, M, F) in enumerate(SCENARIOS):
-        for rep in range(N_REPS):
-            seed = scenario_idx * 1000 + rep
-            tasks.append((scenario, M, F, rep, seed))
+    for pv_idx, pv_frac in enumerate(pv_fracs):
+        for scenario_idx, (scenario, M, F) in enumerate(SCENARIOS):
+            for rep in range(N_REPS):
+                seed = pv_idx * 10000 + scenario_idx * 1000 + rep
+                tasks.append((scenario, M, F, pv_frac, rep, seed))
 
     n_workers = min(mp.cpu_count(), MAX_WORKERS)
     print(f"Tasks: {len(tasks)} runs | Workers: {n_workers}", flush=True)

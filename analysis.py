@@ -269,6 +269,92 @@ def load_tidy(csv_path):
 
 
 # ---------------------------------------------------------------------------
+# PV comparison plot
+# ---------------------------------------------------------------------------
+
+PV_LEVEL_LABELS = {0.0: "No PV (0%)", 0.5: "50% PV", 1.0: "100% PV"}
+
+
+def plot_pv_comparison(csv_path, output_path=None, display_slice=(0, 100), regulation_year=50):
+    """
+    For the freemarket case, plot compliance trajectories faceted by pv-adoption-fraction.
+    Rows = compliance, drawdown, boldness/vengefulness.
+    Columns = pv adoption level {0.0, 0.5, 1.0}.
+    """
+    df = load_tidy(csv_path)
+    pv_levels = sorted(df["pv-adoption-fraction"].unique())
+    n_cols = len(pv_levels)
+
+    row_specs = [
+        ("TS-compliance",    "Compliance [%]",           (0, 100), 100.0, False),
+        ("TS-drawdowns-mean","Mean drawdown below\npre-dev. [m]", None,  1.0,   False),
+    ]
+
+    fig, axes = plt.subplots(3, n_cols, figsize=(5 * n_cols, 10), sharex=True)
+    if n_cols == 1:
+        axes = axes.reshape(3, 1)
+
+    for col, pv_frac in enumerate(pv_levels):
+        sub_df = df[df["pv-adoption-fraction"] == pv_frac]
+        title = PV_LEVEL_LABELS.get(pv_frac, f"PV={pv_frac}")
+
+        # Rows 0–1
+        for row, (metric, ylabel, ylim, scale, cumul) in enumerate(row_specs):
+            ax = axes[row][col]
+            if metric in sub_df.columns:
+                _plot_scenario_band(ax, sub_df, metric, ylim=ylim, scale=scale,
+                                    cumulative=cumul, display_slice=display_slice,
+                                    regulation_year=regulation_year)
+            if col == 0:
+                ax.set_ylabel(ylabel, fontsize=9)
+            if row == 0:
+                ax.set_title(title, fontsize=11)
+            if row == 1:
+                ax.invert_yaxis()
+
+        # Row 2: boldness + vengefulness
+        ax = axes[2][col]
+        lo, hi = display_slice
+        df_s = label_scenarios(sub_df)
+        for scenario in ["mf", "Mf", "mF", "MF"]:
+            s = df_s[(df_s["scenario"] == scenario) &
+                     (df_s["tick"] >= lo) & (df_s["tick"] < hi)].copy()
+            if s.empty:
+                continue
+            s["year"] = s["tick"] - lo
+            color = SCENARIO_COLORS[scenario]
+            for metric, ls in [("TS-boldness", "-"), ("TS-vengefulness", "--")]:
+                if metric not in s.columns:
+                    continue
+                g = s.groupby("year")[metric]
+                mean, std = g.mean(), g.std()
+                ax.plot(mean.index, mean.values, linestyle=ls, color=color,
+                        linewidth=1.2,
+                        label=f"{scenario} {metric.split('-')[1][:4]}" if col == 0 else "")
+                ax.fill_between(mean.index, mean.values - std, mean.values + std,
+                                alpha=0.2, color=color)
+        ax.axvline(regulation_year, color="black", linestyle="--", linewidth=1, alpha=0.7)
+        ax.set_xlim(0, hi - lo)
+        ax.set_xlabel("Years", fontsize=9)
+        if col == 0:
+            ax.set_ylabel("Boldness / Vengefulness", fontsize=9)
+        ax.tick_params(labelsize=8)
+
+    handles, labels_leg = axes[0][0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels_leg, loc="upper right", fontsize=8,
+                   title="Scenario", bbox_to_anchor=(1.0, 0.98))
+
+    fig.suptitle("Agrivoltaic technology floor: Free Market archetype", fontsize=12, y=1.01)
+    fig.tight_layout()
+
+    path = output_path or FIGS_DIR / "pv_comparison_freemarket.png"
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"Saved: {path}")
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 

@@ -138,6 +138,10 @@ globals
   TS-total-breaches
   TS-boldness
   TS-vengefulness
+
+  pv-adoption-fraction    ;; fraction of farmers initialized with PV panels [0,1]
+  pv-water-reduction      ;; fractional reduction in IWA for PV farmers (e.g. 0.3 = 30%)
+  pv-income-bonus         ;; additional income per ha per season for PV farmers [$/ha]
 ]
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; AGENT BREEDS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -221,6 +225,8 @@ farmers-own
   ranking-drawdown
 
   cummulative-wealth
+
+  has-pv?         ;; does this farmer have agrivoltaic panels installed?
 ]
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -884,18 +890,21 @@ end
 to UPDATE-PUMPING-RATES                                                                       ;; take the allocation, or allocation < Q < maxQ
   ask farmers
   [
+    let effective-IWA IWA
+    if has-pv? [set effective-IWA IWA * (1 - pv-water-reduction)]
+
     if decision = "cooperate"
     [
       set breach 0
       set irrigated-area (farm-area-total * pumping-cap)                                      ;; the area that the farmer has chosen to irrigate
-      set Q-farm (farm-area-total * pumping-cap * IWA * 1000 / growing-season)                ;; [m3/d]
+      set Q-farm (farm-area-total * pumping-cap * effective-IWA * 1000 / growing-season)      ;; [m3/d]
     ]
     if decision = "defect"
     [
       let max-breach (farm-area-total * (1 - pumping-cap))                                    ;; each breach will be something in between irrigating the whole farm or a portion of it, [ha]
       set breach boldness * max-breach                                                        ;; a breach proportional to the farmer's boldness, [ha]
       set irrigated-area (farm-area-total * pumping-cap + breach)                             ;; the area that the farmer has chosen to irrigate
-      set Q-farm ((farm-area-total * pumping-cap + breach) * IWA * 1000 / growing-season)     ;; [m3/d]
+      set Q-farm ((farm-area-total * pumping-cap + breach) * effective-IWA * 1000 / growing-season) ;; [m3/d]
     ]
     set Qwell Q-farm
   ]
@@ -1055,22 +1064,44 @@ end
 to CALCULATE-E-SCORE-WINTER
   ask farmers
   [
+    let effective-IWA IWA
+    let solar-income 0
+    if has-pv?
+    [
+      set effective-IWA IWA * (1 - pv-water-reduction)
+      ;; Solar income is fixed per installed panel area (pumping-cap × farm),
+      ;; NOT proportional to irrigated area (panels don't grow when you over-pump).
+      ;; Compliance-contingent: subsidy revoked for the season if caught defecting.
+      if (decision = "cooperate" or caught-this-year? = false)
+        [set solar-income pv-income-bonus * pumping-cap * farm-area-total]
+    ]
     set IN (crop-price * crop-yield)
-    set VC-pumping (energy-price * 9.8 * IWA * Hlift) / (pump-efficiency)               ;; pump efficiency equal for everyone
+    set VC-pumping (energy-price * 9.8 * effective-IWA * Hlift) / (pump-efficiency)
     set VC-other variable-costs-other
     set VC (VC-pumping + VC-other)
-    set E-score-winter (IN - VC) * irrigated-area
+    set E-score-winter (IN - VC) * irrigated-area + solar-income
   ]
 end
 
 to CALCULATE-E-SCORE-SUMMER
   ask farmers
   [
+    let effective-IWA IWA
+    let solar-income 0
+    if has-pv?
+    [
+      set effective-IWA IWA * (1 - pv-water-reduction)
+      ;; Solar income is fixed per installed panel area (pumping-cap × farm),
+      ;; NOT proportional to irrigated area.
+      ;; Compliance-contingent: subsidy revoked if caught defecting.
+      if (decision = "cooperate" or caught-this-year? = false)
+        [set solar-income pv-income-bonus * pumping-cap * farm-area-total]
+    ]
     set IN (crop-price * crop-yield)
-    set VC-pumping (energy-price * 9.8 * IWA * Hlift) / (pump-efficiency)               ;; pump efficiency equal for everyone
+    set VC-pumping (energy-price * 9.8 * effective-IWA * Hlift) / (pump-efficiency)
     set VC-other variable-costs-other
     set VC (VC-pumping + VC-other)
-    set E-score-summer (IN - VC) * irrigated-area
+    set E-score-summer (IN - VC) * irrigated-area + solar-income
   ]
 end
 
@@ -1244,6 +1275,16 @@ to SET-SUMMER-CROP-ECONOMICS
     set variable-costs-other 500
   ]
 
+  if economy? = "Free Market: Generic Cash Crop(S+W)"
+  [
+    ;; generic moderately water-intensive cash crop; summer GM ~ $2100-2400/ha
+    set crop-price 0.80
+    set IWA 11.0
+    set crop-yield 4500
+    set energy-price 0.12
+    set variable-costs-other 1200
+  ]
+
   ;  if economy? = "North China Plain: Corn(S), Wheat(W)"
   ;  [
   ;    set crop-price
@@ -1290,6 +1331,16 @@ to SET-WINTER-CROP-ECONOMICS
     set IWA 3.5
     set crop-yield 4500
     set energy-price 0.10
+    set variable-costs-other 350
+  ]
+
+  if economy? = "Free Market: Generic Cash Crop(S+W)"
+  [
+    ;; minor off-season crop; lower price, lower water use
+    set crop-price 0.35
+    set IWA 3.0
+    set crop-yield 3500
+    set energy-price 0.12
     set variable-costs-other 350
   ]
 
@@ -2240,6 +2291,9 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to SETUP-EXPERIMENT
+  ;; NOTE: setup-GWmodel calls 'ca' (clear-all), which resets ALL globals to 0.
+  ;; Therefore PV parameters (pv-adoption-fraction etc.) must be set AFTER this
+  ;; procedure returns and SETUP-PV must be called separately.
   setup-GWmodel
   ask patches with [pxcor = max-pxcor]
   [set right-bc-head (left-bc-head + (regional-gradient / 100) * (delta * N))]
@@ -2248,6 +2302,15 @@ to SETUP-EXPERIMENT
   ask farmers [set Hground H + 10]
   reset-ticks
   set year 0
+end
+
+to SETUP-PV
+  ask farmers [set has-pv? false]
+  if pv-adoption-fraction > 0
+  [
+    ask n-of (round (pv-adoption-fraction * count farmers)) farmers
+      [set has-pv? true]
+  ]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -4366,7 +4429,7 @@ BUTTON
 1598
 529
 SETUP MODEL
-SETUP-EXPERIMENT
+SETUP-EXPERIMENT\nSETUP-PV
 NIL
 1
 T
@@ -4431,7 +4494,7 @@ CHOOSER
 87
 economy?
 economy?
-"Australia: Cotton(S), Vetch(W)" "Central Valley: Almonds(S)" "Punjab: Rice(S), Wheat(W)" "Canada: Canola(S), Wheat(W)" "North China Plain: Corn(S), Wheat(W)"
+"Australia: Cotton(S), Vetch(W)" "Central Valley: Almonds(S)" "Punjab: Rice(S), Wheat(W)" "Canada: Canola(S), Wheat(W)" "Free Market: Generic Cash Crop(S+W)" "North China Plain: Corn(S), Wheat(W)"
 1
 
 MONITOR
