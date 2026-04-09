@@ -1,95 +1,147 @@
-# Groundwater Commons Game — Reproduction & Extension
+# Groundwater Commons Game — Extended
 
-Python infrastructure for running and analysing the **Groundwater Commons Game** agent-based model (Castilla-Rho et al. 2019), implemented in NetLogo 6.x.
+Python runners and analysis for the **Groundwater Commons Game** (Castilla-Rho et al. 2017), extended with a Canada case study and agrivoltaic (PV) technology experiment.
 
-Reproduces Figure 5 from the paper and extends the model with a Canada (Paskapoo Formation) case study.
+## Upstream model
+
+**The Groundwater Commons Game** v1.2.0  
+Castilla-Rho, J. C., Rojas, R., Andersen, M. S., Holley, C. & Mariethoz, G.  
+*Social tipping points in global groundwater management.*  
+Nature Human Behaviour 1, 640–649 (2017).  
+https://www.comses.net/codebases/5634/releases/1.2.0/  
+License: GPL-3.0
 
 ## Requirements
 
-- NetLogo 6.4.0 installed at `NetLogo-6.4.0-64/` (not included — download separately)
-- Python 3.10+, managed with [uv](https://github.com/astral-sh/uv)
+- **NetLogo 6.4.0** installed at `NetLogo-6.4.0-64/` (not tracked — download from https://ccl.northwestern.edu/netlogo/6.4.0/)
+- **Python 3.10+** via [uv](https://github.com/astral-sh/uv)
 
 ```bash
 uv sync
 ```
 
-> **Note:** pyNetLogo 0.5.2 conflicts with `asm-4.0.jar` bundled in the NetLogo 6.4.0 vid extension. All runners monkey-patch `pynetlogo.core.find_jars` to exclude it automatically.
+> **asm conflict:** pyNetLogo 0.5.2 conflicts with `asm-4.0.jar` bundled in NetLogo 6.4.0's vid extension. All runners monkey-patch `pynetlogo.core.find_jars` to exclude it automatically — no manual action needed.
 
 ## Model
 
-`groundwater-commons/code/Groundwater_Commons_Game.nlogo` — the original model with two compatibility patches applied:
+`model/Groundwater_Commons_Game.nlogo` — the upstream model with the following changes applied:
 
-- Version string updated from `NetLogo 5.3.1` → `NetLogo 6.4.0`
-- Three lines using NetLogo 5 anonymous variable syntax (`?`) rewritten for NetLogo 6
+| Change | Type |
+|---|---|
+| Version string `NetLogo 5.3.1` → `NetLogo 6.4.0` | Compatibility |
+| Three lines using NetLogo 5 `?` anonymous syntax rewritten for NetLogo 6 | Compatibility |
+| Canada economy: Canola (summer), Wheat (winter) | Extension |
+| Free Market economy: generic cash crop (summer + winter) | Extension |
+| Agrivoltaic PV globals (`pv-adoption-fraction`, `pv-water-reduction`, `pv-income-bonus`) | Extension |
+| `has-pv?` farmer variable + `SETUP-PV` procedure | Extension |
+| PV-adjusted effective IWA and solar income in E-score calculations | Extension |
 
-## Running simulations
+The upstream unmodified model is at `model/upstream/` for reference. The embedded BehaviorSpace XML is unchanged from upstream.
 
-### Paper protocol (Figure 5)
+## Protocol
 
-Runs 400 simulations (4 scenarios × 100 reps) using the protocol described in the paper: 50 years of lax regulation followed by 50 years of the target enforcement scenario.
+### run_paper.py — paper reproduction (Figure 5)
 
-```bash
-.venv/bin/python run_paper_protocol_generic.py <case_study>
+Faithfully implements the original BehaviorSpace protocol:
+
+```
+SETUP-EXPERIMENT          # ca clears all globals → S-params = 0
+set lax params            # M=0.1, F=0.1; S-enf-cost and S-rep remain 0
+repeat 100 [go]           # hidden burn-in (not recorded)
+reset-ticks               # TS lists retain 100 burn-in entries
+set actual S-params       # S-enforcement-cost, S-reputation now active
+set scenario M, F
+repeat 100 [go]           # measurement period
+collect TS[-100:]         # last 100 entries = measurement period only
 ```
 
-Available case studies: `australia`, `usa`, `pakistan`, `india`, `canada`
+All 100 output years are under the enforcement scenario (no lax phase in output). Regulation onset is at year 0.
 
-Output: `results/paper_protocol_<case>.csv` — tidy CSV, one row per (run, year).
+```bash
+.venv/bin/python run_paper.py india
+.venv/bin/python run_paper.py australia
+.venv/bin/python run_paper.py pakistan
+.venv/bin/python run_paper.py usa
+.venv/bin/python run_paper.py canada
+```
 
-RAM: 8 parallel JVMs (~8 GB). Reduce `MAX_WORKERS` in the script if needed.
+Output: `results/bs_protocol_<case>.csv`
 
-### Approximate runtimes
+### run_pv.py — agrivoltaic technology experiment
 
-| Case study | Farmers | ~Time (8 workers) |
-|---|---|---|
-| Australia | 10 | ~20 min |
-| USA / Canada | 50 | ~1–2 hr |
-| India / Pakistan | 630 | several hours |
+Free Market archetype, three PV adoption levels (0%, 50%, 100%). Shared seeds so yr 0–24 is identical across PV levels and the yr-25 bifurcation is cleanly attributable to PV adoption.
+
+```
+yr  0-24: lax (M=0.1, F=0.1), no PV
+yr 25:    PV adoption event (SETUP-PV)
+yr 25-49: lax, with PV
+yr 50-99: enforcement scenario, with PV
+```
+
+```bash
+.venv/bin/python run_pv.py
+```
+
+Output: `results/pv_freemarket.csv`
 
 ## Plotting
 
 ```bash
-# All available case studies
-.venv/bin/python plot_panels.py
+# Figure 5 — paper protocol results
+.venv/bin/python plot_panels.py --bs australia india
 
-# Specific panels
-.venv/bin/python plot_panels.py australia india canada
+# All available cases
+.venv/bin/python plot_panels.py --bs
+
+# PV comparison
+.venv/bin/python plot_panels.py --pv-compare freemarket
 ```
 
-Output: `figures/figure5_<tag>.png`
+Output: `figures/`
 
 ## Cultural parameter mapping
 
-The paper's Grid/Group cultural dimensions map to model parameters as follows. The formula `S = group^n × (1−grid)^m` in the paper corresponds to `S = (1−S_reputation)^n × (1−S_enforcement_cost)^m` in the code, so **S_reputation = 1 − Group**.
+The paper formula `S = group^n × (1−grid)^m` maps to code parameters as:
 
-| Case study | Grid | Group | S-enforcement-cost | S-reputation | Farmers |
+```
+S_reputation    = 1 − Group     (NOT Group directly)
+S_enforcement_cost = Grid
+```
+
+| Case | Grid | Group | S-enforcement-cost | S-reputation | Farmers |
 |---|---|---|---|---|---|
-| Australia | 0.2 | 0.8 | 0.2 | 0.2 | 10 |
-| USA | 0.4 | 0.4 | 0.4 | 0.6 | 50 |
-| Pakistan | 0.8 | 0.4 | 0.8 | 0.6 | 630 |
-| India | 0.8 | 0.6 | 0.8 | 0.4 | 630 |
-| Canada | 0.25 | 0.60 | 0.25 | 0.40 | 50 |
+| Australia (MDB) | 0.2 | 0.8 | 0.2 | 0.2 | 10 |
+| USA (Central Valley) | 0.4 | 0.4 | 0.4 | 0.6 | 50 |
+| Pakistan (Punjab) | 0.8 | 0.4 | 0.8 | 0.6 | 630 |
+| India (Punjab) | 0.8 | 0.6 | 0.8 | 0.4 | 630 |
+| Canada (Paskapoo) | 0.30 | 0.39 | 0.30 | 0.61 | 50 |
 
-Canada parameters are provisional (WVS Wave 7 estimates for Alberta); treat as prospective scenario analysis.
+Canada parameters are empirically derived from WVS Wave 7 (n=4018, Alberta).
 
-## File layout
+## Approximate runtimes (8 workers)
+
+| Case | Farmers | run_paper.py |
+|---|---|---|
+| Australia | 10 | ~40 min (100yr burn-in × 100 reps) |
+| USA / Canada | 50 | ~2–3 hr |
+| India / Pakistan | 630 | ~8–12 hr |
+
+## Layout
 
 ```
-├── groundwater-commons/
-│   └── code/Groundwater_Commons_Game.nlogo   # patched model
-├── experiments/
-│   └── validate_australia.xml                # BehaviorSpace experiment
-├── run_paper_protocol_generic.py  # main runner (all case studies)
-├── run_paper_protocol.py          # original Australia-only runner
-├── run_experiment.py              # BehaviorSpace-based alternative runner
-├── analysis.py                    # CSV parsing + Figure 5 plotting functions
-├── plot_panels.py                 # multi-panel figure generator
-├── run.py                         # standalone pyNetLogo setup / scratch
-├── main.py                        # entry point / scratch
-├── desertification-toy.nlogo      # toy desertification model
-└── pyproject.toml                 # Python dependencies
+model/
+  Groundwater_Commons_Game.nlogo   # extended model (NetLogo 6.4.0)
+  upstream/
+    Groundwater_Commons_Game.nlogo # original unmodified (reference)
+run_paper.py      # Figure 5 reproduction — faithful BehaviorSpace protocol
+run_pv.py         # agrivoltaic PV experiment
+analysis.py       # loaders + Figure 5 plotting functions
+plot_panels.py    # multi-panel figure CLI
+data/
+  NSW_survey_analysis.R
+  grid_group_WVS6_analysis.R
+docs/
+  SI.pdf          # Castilla-Rho 2017 supplementary information
+pyproject.toml
+UPSTREAM.cff      # upstream model attribution
 ```
-
-## Reference
-
-Castilla-Rho, J.C., Rojas, R., Renard, P., Mariethoz, G., Bhatt, S. (2019). *Social tipping points in global groundwater management.* Nature Human Behaviour. https://doi.org/10.1038/s41562-019-0554-0

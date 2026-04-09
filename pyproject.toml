@@ -1,14 +1,13 @@
 [project]
-name = "nlogo"
+name = "gcg-extended"
 version = "0.1.0"
-description = "Add your description here"
+description = "Python runners and analysis for the Groundwater Commons Game (Castilla-Rho et al. 2017) with Canada and agrivoltaic extensions"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "pynetlogo",
-    "pandas",
+    "pynetlogo==0.5.2",
     "jpype1",
-    "streamlit",
+    "pandas",
     "matplotlib",
     "numpy",
 ]
