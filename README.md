@@ -38,7 +38,7 @@ uv sync
 
 The upstream unmodified model is at `model/upstream/` for reference. The embedded BehaviorSpace XML is unchanged from upstream.
 
-## Protocol
+## Runners
 
 ### run_paper.py — paper reproduction (Figure 5)
 
@@ -46,7 +46,7 @@ Faithfully implements the original BehaviorSpace protocol:
 
 ```
 SETUP-EXPERIMENT          # ca clears all globals → S-params = 0
-set lax params            # M=0.1, F=0.1; S-enf-cost and S-rep remain 0
+set lax burn-in params    # M=0.1, F=0.1; S-enf-cost and S-rep remain 0
 repeat 100 [go]           # hidden burn-in (not recorded)
 reset-ticks               # TS lists retain 100 burn-in entries
 set actual S-params       # S-enforcement-cost, S-reputation now active
@@ -55,76 +55,129 @@ repeat 100 [go]           # measurement period
 collect TS[-100:]         # last 100 entries = measurement period only
 ```
 
-All 100 output years are under the enforcement scenario (no lax phase in output). Regulation onset is at year 0.
+All 100 output ticks are under the enforcement scenario (no lax phase in output).
+
+```
+usage: run_paper.py [-h] [--reps REPS] [--workers WORKERS]
+                    {australia,usa,pakistan,india,canada}
+
+positional arguments:
+  {australia,usa,pakistan,india,canada}
+
+options:
+  --reps REPS        Repetitions per enforcement scenario (default: 100, paper used 50)
+  --workers WORKERS  Parallel JVM workers, ~1 GB RAM each (default: 8)
+```
 
 ```bash
 .venv/bin/python run_paper.py india
-.venv/bin/python run_paper.py australia
-.venv/bin/python run_paper.py pakistan
-.venv/bin/python run_paper.py usa
-.venv/bin/python run_paper.py canada
+.venv/bin/python run_paper.py australia --reps 50
+.venv/bin/python run_paper.py pakistan --workers 4
 ```
 
 Output: `results/bs_protocol_<case>.csv`
 
+Plot: `.venv/bin/python plot_panels.py --bs <case>`
+
+---
+
 ### run_pv.py — agrivoltaic technology experiment
 
-Free Market archetype, three PV adoption levels (0%, 50%, 100%). Shared seeds so yr 0–24 is identical across PV levels and the yr-25 bifurcation is cleanly attributable to PV adoption.
+Free Market archetype, sweeps PV adoption fractions with shared seeds so yr 0–adopt_year is identical across PV levels.
 
 ```
-yr  0-24: lax (M=0.1, F=0.1), no PV
-yr 25:    PV adoption event (SETUP-PV)
-yr 25-49: lax, with PV
-yr 50-99: enforcement scenario, with PV
+yr  0 – adopt_year-1:   lax (M=0.1, F=0.1), no PV
+yr  adopt_year:         PV adoption event (SETUP-PV)
+yr  adopt_year – reg_year-1: lax, with PV
+yr  reg_year – 99:      enforcement scenario, with PV
+```
+
+```
+usage: run_pv.py [-h] [--pv-fracs F [F ...]] [--water-reduction R]
+                 [--income-bonus B] [--adopt-year Y] [--reg-year Y]
+                 [--reps REPS] [--workers WORKERS]
+
+PV parameters:
+  --pv-fracs F [F ...]  Adoption fractions to sweep (default: 0.0 0.5 1.0)
+  --water-reduction R   Fractional IWA reduction from panel shading (default: 0.30)
+  --income-bonus B      Solar income $/ha/season of installed panel area (default: 400)
+
+Timeline:
+  --adopt-year Y        Year panels are installed, 0-indexed (default: 25)
+  --reg-year Y          Year enforcement switches from lax to scenario (default: 50)
+
+Compute:
+  --reps REPS           Reps per (scenario, PV level) combination (default: 100)
+  --workers WORKERS     Parallel JVM workers, ~1 GB RAM each (default: 8)
 ```
 
 ```bash
+# Default run (3 PV levels × 4 scenarios × 100 reps)
 .venv/bin/python run_pv.py
+
+# Custom PV sweep with different physical parameters
+.venv/bin/python run_pv.py --pv-fracs 0.0 0.25 0.5 0.75 1.0 --water-reduction 0.25 --income-bonus 350
+
+# Earlier adoption, later enforcement
+.venv/bin/python run_pv.py --adopt-year 10 --reg-year 60
+
+# Quick test
+.venv/bin/python run_pv.py --reps 10 --workers 2
 ```
 
 Output: `results/pv_freemarket.csv`
 
+---
+
 ## Plotting
 
 ```bash
-# Figure 5 — paper protocol results
+# Figure 5 — one or more case studies
 .venv/bin/python plot_panels.py --bs australia india
 
-# All available cases
+# All available cases (auto-discovers results/bs_protocol_*.csv)
 .venv/bin/python plot_panels.py --bs
 
-# PV comparison
+# PV comparison panels
 .venv/bin/python plot_panels.py --pv-compare freemarket
 ```
 
 Output: `figures/`
 
+---
+
 ## Cultural parameter mapping
 
-The paper formula `S = group^n × (1−grid)^m` maps to code parameters as:
+The paper formula `S = group^n × (1−grid)^m` maps to model parameters as:
 
 ```
-S_reputation    = 1 − Group     (NOT Group directly)
+S_reputation       = 1 − Group     (NOT Group directly)
 S_enforcement_cost = Grid
 ```
 
 | Case | Grid | Group | S-enforcement-cost | S-reputation | Farmers |
 |---|---|---|---|---|---|
-| Australia (MDB) | 0.2 | 0.8 | 0.2 | 0.2 | 10 |
-| USA (Central Valley) | 0.4 | 0.4 | 0.4 | 0.6 | 50 |
-| Pakistan (Punjab) | 0.8 | 0.4 | 0.8 | 0.6 | 630 |
-| India (Punjab) | 0.8 | 0.6 | 0.8 | 0.4 | 630 |
+| Australia (MDB) | 0.20 | 0.80 | 0.20 | 0.20 | 10 |
+| USA (Central Valley) | 0.40 | 0.40 | 0.40 | 0.60 | 50 |
+| Pakistan (Punjab) | 0.80 | 0.40 | 0.80 | 0.60 | 630 |
+| India (Punjab) | 0.80 | 0.60 | 0.80 | 0.40 | 630 |
 | Canada (Paskapoo) | 0.30 | 0.39 | 0.30 | 0.61 | 50 |
 
-Canada parameters are empirically derived from WVS Wave 7 (n=4018, Alberta).
+Canada parameters derived from WVS Wave 7 (n=4018, Alberta).
+
+---
 
 ## Approximate runtimes (8 workers)
 
-| Case | Farmers | run_paper.py |
+| Case | Farmers | run_paper.py (100 reps) |
 |---|---|---|
-| Australia | 10 | ~40 min (100yr burn-in × 100 reps) |
+| Australia | 10 | ~40 min |
 | USA / Canada | 50 | ~2–3 hr |
 | India / Pakistan | 630 | ~8–12 hr |
+
+`run_pv.py` default (3 PV levels × 4 scenarios × 100 reps, 50 farmers): ~6–8 hr.
+
+---
 
 ## Layout
 

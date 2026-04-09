@@ -23,8 +23,8 @@ Usage:
     .venv/bin/python run_paper.py canada
 """
 
+import argparse
 import os
-import sys
 import time
 import multiprocessing as mp
 import pandas as pd
@@ -82,7 +82,7 @@ SCENARIOS = [
     ("MF",  0.5, 0.9),
 ]
 
-N_REPS = 100   # original paper used 50; we use 100 for better statistics
+N_REPS_DEFAULT = 100   # original paper used 50
 
 METRICS = [
     "TS-compliance",
@@ -139,15 +139,11 @@ def run_batch(args):
     nl.command("set social-model? true")
 
     records = []
-    for i, (scenario, M, F, rep, seed) in enumerate(tasks):
+    for i, (scenario, M, F, rep, seed, n_reps) in enumerate(tasks):
         try:
             nl.command(f"random-seed {seed}")
 
-            # --- Step 1: set actual S-params BEFORE setup so they are
-            #             captured as the "old" values in the BehaviorSpace
-            #             protocol (here we do it explicitly after setup). ---
-
-            # --- Step 2: SETUP-EXPERIMENT clears all globals via ca ---
+            # --- SETUP-EXPERIMENT clears all globals via ca ---
             nl.command(f"set num-farmers {case_params['num-farmers']}")
             nl.command("SETUP-EXPERIMENT")
             # After this: S-enforcement-cost=0, S-reputation=0 (cleared by ca)
@@ -193,7 +189,7 @@ def run_batch(args):
                 # Take only the measurement period (last MEASURE_YEARS values)
                 ts[m] = full_list[-MEASURE_YEARS:]
 
-            run_num = SCENARIOS.index((scenario, M, F)) * N_REPS + rep
+            run_num = SCENARIOS.index((scenario, M, F)) * n_reps + rep
             for yr in range(MEASURE_YEARS):
                 row = {
                     "run":                     run_num,
@@ -223,37 +219,47 @@ def run_batch(args):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <case_study>")
-        print(f"Available: {', '.join(CASE_STUDIES.keys())}")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Reproduce Figure 5 (Castilla-Rho et al. 2017) — faithful BehaviorSpace protocol.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "case",
+        choices=list(CASE_STUDIES.keys()),
+        help="Case study to run",
+    )
+    parser.add_argument(
+        "--reps", type=int, default=N_REPS_DEFAULT,
+        help="Repetitions per enforcement scenario (paper used 50)",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=MAX_WORKERS,
+        help="Parallel JVM workers (each uses ~1 GB RAM)",
+    )
+    args = parser.parse_args()
 
-    case_name = sys.argv[1].lower()
-    if case_name not in CASE_STUDIES:
-        print(f"Unknown case study: {case_name}")
-        print(f"Available: {', '.join(CASE_STUDIES.keys())}")
-        sys.exit(1)
-
-    case_params = CASE_STUDIES[case_name]
-    output_csv = str(RESULTS_DIR / f"bs_protocol_{case_name}.csv")
+    case_params = CASE_STUDIES[args.case]
+    n_reps      = args.reps
+    n_workers   = min(args.workers, mp.cpu_count())
+    output_csv  = str(RESULTS_DIR / f"bs_protocol_{args.case}.csv")
 
     print(f"BehaviorSpace-faithful protocol")
-    print(f"  Case:               {case_name}")
+    print(f"  Case:               {args.case}")
     print(f"  num-farmers:        {case_params['num-farmers']}")
     print(f"  economy:            {case_params['economy']}")
     print(f"  S-enforcement-cost: {case_params['S-enforcement-cost']}")
     print(f"  S-reputation:       {case_params['S-reputation']}")
     print(f"  Burn-in years:      {BURN_IN_YEARS} (hidden, S-params=0)")
     print(f"  Measurement years:  {MEASURE_YEARS} (all under scenario M/F)")
-    print(f"  Reps per scenario:  {N_REPS}")
+    print(f"  Reps per scenario:  {n_reps}")
+    print(f"  Workers:            {n_workers}")
 
     tasks = []
     for scenario_idx, (scenario, M, F) in enumerate(SCENARIOS):
-        for rep in range(N_REPS):
+        for rep in range(n_reps):
             seed = scenario_idx * 1000 + rep
-            tasks.append((scenario, M, F, rep, seed))
+            tasks.append((scenario, M, F, rep, seed, n_reps))
 
-    n_workers = min(mp.cpu_count(), MAX_WORKERS)
     print(f"Tasks: {len(tasks)} runs | Workers: {n_workers}", flush=True)
 
     WORKER_DIR.mkdir(parents=True, exist_ok=True)
@@ -281,19 +287,9 @@ def main():
 
     elapsed = time.time() - t0
     n_runs = df["run"].nunique()
-    print(
-        f"Done: {n_runs} runs in {elapsed:.0f}s ({elapsed/n_runs:.1f}s/run) -> {output_csv}",
-        flush=True,
-    )
-    print(
-        f"\nPlot with:\n"
-        f"  .venv/bin/python plot_panels.py  (after symlinking or renaming)\n"
-        f"  OR load directly:\n"
-        f"  from analysis import load_tidy, plot_figure5\n"
-        f"  plot_figure5({{'{case_name}': load_tidy('{output_csv}')}},\n"
-        f"               display_slice=(0,100), regulation_year=0)",
-        flush=True,
-    )
+    print(f"Done: {n_runs} runs in {elapsed:.0f}s ({elapsed/n_runs:.1f}s/run) -> {output_csv}",
+          flush=True)
+    print(f"Plot:  .venv/bin/python plot_panels.py --bs {args.case}", flush=True)
 
 
 if __name__ == "__main__":
