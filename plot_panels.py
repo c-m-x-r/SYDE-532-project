@@ -1,17 +1,17 @@
 """
 plot_panels.py
 
-Generate multi-panel Figure 5 reproduction + Canada extension + PV comparison.
+Generate multi-panel Figure 5 reproduction + Canada extension.
 
 Usage:
     .venv/bin/python plot_panels.py                        # all available cases
     .venv/bin/python plot_panels.py australia india        # specific panels
-    .venv/bin/python plot_panels.py --pv-compare freemarket  # PV sweep comparison
+    .venv/bin/python plot_panels.py --bs australia         # BehaviorSpace protocol output
 """
 
 import sys
 from pathlib import Path
-from analysis import load_tidy, plot_figure5, plot_pv_comparison
+from analysis import load_tidy, plot_figure5
 
 RESULTS_DIR = Path(__file__).parent / "results"
 FIGS_DIR = Path(__file__).parent / "figures"
@@ -29,19 +29,13 @@ PANEL_LABELS = {
 def main():
     args = sys.argv[1:]
 
-    # PV comparison mode
-    if args and args[0] == "--pv-compare":
-        case_names = args[1:] if len(args) > 1 else ["freemarket"]
-        for name in case_names:
-            csv = RESULTS_DIR / f"paper_protocol_{name}.csv"
-            if not csv.exists():
-                print(f"Not found: {csv}")
-                continue
-            out = FIGS_DIR / f"pv_comparison_{name}.png"
-            FIGS_DIR.mkdir(exist_ok=True)
-            plot_pv_comparison(str(csv), output_path=out,
-                               display_slice=(0, 100), regulation_year=50)
-        return
+    # PV comparison mode (parked — run_pv.py / plot_pv_comparison not integrated)
+    # if args and args[0] == "--pv-compare":
+    #     case_names = args[1:] if len(args) > 1 else ["freemarket"]
+    #     for name in case_names:
+    #         csv = RESULTS_DIR / f"pv_freemarket.csv"   # run_pv.py output
+    #         ...
+    #     return
 
     # Standard Figure 5 mode
     # Prefix: --bs uses BehaviorSpace-faithful protocol output (bs_protocol_*.csv);
@@ -58,10 +52,7 @@ def main():
         args = args[:idx] + args[idx + 2:]
 
     prefix = "bs_protocol" if use_bs else "paper_protocol"
-    # BehaviorSpace protocol output contains 50 burn-in years (ticks 0-49,
-    # S-params=0, lax M/F — all scenarios identical) followed by 50 enforcement
-    # years (ticks 50-99).  Regulation line at tick 50 matches Figure 5.
-    display_slice   = (0, 100)
+    display_slice   = (0, 100)   # full 100-year trajectory: ticks 0-49 lax + 50-99 enforcement
     regulation_year = 50
 
     requested = [a.lower() for a in args] if args else None
