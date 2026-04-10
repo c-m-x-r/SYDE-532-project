@@ -103,12 +103,15 @@ SCENARIO_COLORS = {"mf": "#888888", "Mf": "#2196F3", "mF": "#FF9800", "MF": "#4C
 REGULATION_YEAR = 50   # vertical line position in display
 DISPLAY_SLICE   = (50, 150)  # which TS indices to show (last 50 burn-in + first 50 measurement)
 
-ROW_METRICS = [
-    ("TS-compliance",    "Compliance [%]",             (0, 1),    None),
-    ("TS-total-breaches","Cumul. illegal extractions",  None,      None),
-    ("TS-drawdowns-mean","Mean drawdown [m]",           None,      None),
-    # row 4: two metrics on same axes
-]
+# Default num-farmers per case label (used when not stored in CSV)
+CASE_FARMERS = {
+    "Australia (MDB)":      10,
+    "USA (Central Valley)": 50,
+    "Canada (Paskapoo)":    50,
+    "Pakistan (Punjab)":    630,
+    "India (Punjab)":       630,
+    "Free Market (Generic)": 50,
+}
 
 def _plot_scenario_band(ax, df, metric, ylim=None, scale=1.0, cumulative=False,
                         display_slice=None, regulation_year=None):
@@ -142,31 +145,45 @@ def _plot_scenario_band(ax, df, metric, ylim=None, scale=1.0, cumulative=False,
     ax.tick_params(labelsize=8)
 
 
-def plot_figure5(case_dfs: dict, output_path=None, display_slice=None, regulation_year=None):
+def plot_figure5(case_dfs: dict, output_path=None, display_slice=None, regulation_year=None,
+                 farmers_map=None):
     """
     Reproduce Figure 5: 4-row × N-column grid.
-    Rows: compliance | illegal extractions | drawdown | boldness+vengefulness
-    display_slice and regulation_year override the module-level defaults.
-    Use display_slice=(0,100), regulation_year=50 for the paper-protocol tidy CSV.
+    Rows: compliance | breaches per farmer | drawdown | boldness+vengefulness
+
+    Axes are shared within each row (sharey='row') so cross-country comparison is
+    on a consistent scale.  Breaches are normalised by num-farmers so that the 10-farmer
+    Australia case is comparable to the 630-farmer Punjab cases.
+
+    farmers_map: optional {label: num_farmers} override; falls back to CASE_FARMERS.
     """
-    # Allow per-call overrides of the module-level constants
     _slice = display_slice if display_slice is not None else DISPLAY_SLICE
     _reg   = regulation_year if regulation_year is not None else REGULATION_YEAR
+    _fmap  = {**CASE_FARMERS, **(farmers_map or {})}
+
     n = len(case_dfs)
-    fig, axes = plt.subplots(4, n, figsize=(5 * n, 12), sharex=True)
+    fig, axes = plt.subplots(4, n, figsize=(5 * n, 12), sharex=True, sharey="row")
     if n == 1:
         axes = axes.reshape(4, 1)
 
-    # scale for breach: ha × 9.5 ML/ha / 1000 GL/ML / 10000 ha = GL/10⁴ ha per year
-    BREACH_SCALE = 9.5 / 1000 / 10000
-
-    row_specs = [
-        ("TS-compliance",    "Compliance [%]",                (0, 100), 100.0,        False),
-        ("TS-total-breaches","Cumul. illegal extr. [GL/10⁴ha]", None,  BREACH_SCALE, True),
-        ("TS-drawdowns-mean","Mean drawdown below\npre-dev. [m]", None, 1.0,          False),
-    ]
+    # Unit conversion for raw breach counts → GL per 10⁴ ha
+    # 9.5 ML/ha per breach × (1 GL / 1000 ML) / 10000 ha
+    BREACH_UNIT = 9.5 / 1000 / 10000
 
     for col, (label, df) in enumerate(case_dfs.items()):
+        n_farmers = _fmap.get(label, 50)
+        if "num-farmers" in df.columns:
+            n_farmers = int(df["num-farmers"].iloc[0])
+
+        # per-farmer breach scale
+        breach_scale = BREACH_UNIT / n_farmers
+
+        row_specs = [
+            ("TS-compliance",    "Compliance [%]",                        (0, 100), 100.0,        False),
+            ("TS-total-breaches","Cumul. breaches\n[GL/10⁴ha per farmer]", None,    breach_scale,  True),
+            ("TS-drawdowns-mean","Mean drawdown below\npre-dev. [m]",      None,    1.0,           False),
+        ]
+
         # Rows 0–2
         for row, (metric, ylabel, ylim, scale, cumul) in enumerate(row_specs):
             ax = axes[row][col]
@@ -180,7 +197,8 @@ def plot_figure5(case_dfs: dict, output_path=None, display_slice=None, regulatio
                 ax.set_title(label, fontsize=11)
             if row == 2:
                 ax.set_xlabel("Years", fontsize=9)
-                ax.invert_yaxis()   # 0 at top; more depletion = further down, matching paper
+                if col == 0:
+                    ax.invert_yaxis()   # shared axis: only invert once
 
         # Row 3: boldness + vengefulness on same axes
         ax = axes[3][col]
@@ -207,23 +225,25 @@ def plot_figure5(case_dfs: dict, output_path=None, display_slice=None, regulatio
         ax.set_xlabel("Years", fontsize=9)
         if col == 0:
             ax.set_ylabel("Boldness / Vengefulness", fontsize=9)
+            ax.set_ylim(0, 1)   # shared: only set once; boldness/vengefulness ∈ [0,1]
         ax.tick_params(labelsize=8)
+
+    # Phase annotations using axes-fraction coords (safe with sharey)
+    lo, hi = _slice
+    mid_burnin     = (_reg / 2)             / (hi - lo)   # axes fraction
+    mid_regulation = (_reg + (hi - lo - _reg) / 2) / (hi - lo)
+    for col in range(n):
+        ax = axes[0][col]
+        ax.text(mid_burnin,     0.97, "No reg.",    ha="center", va="top",
+                fontsize=7, color="grey", transform=ax.transAxes)
+        ax.text(mid_regulation, 0.97, "Regulation", ha="center", va="top",
+                fontsize=7, color="grey", transform=ax.transAxes)
 
     # Shared legend from first column compliance panel
     handles, labels = axes[0][0].get_legend_handles_labels()
     if handles:
         fig.legend(handles, labels, loc="upper right", fontsize=8,
                    title="Scenario", bbox_to_anchor=(1.0, 0.98))
-
-    # Column annotation: left = no regulation, right = regulation
-    lo, hi = _slice
-    for col in range(n):
-        ax = axes[0][col]
-        ax.text(_reg / 2, ax.get_ylim()[1] * 0.95,
-                "No reg.", ha="center", va="top", fontsize=7, color="grey")
-        ax.text(_reg + (hi - lo - _reg) / 2,
-                ax.get_ylim()[1] * 0.95,
-                "Regulation", ha="center", va="top", fontsize=7, color="grey")
 
     fig.suptitle("Hydro-social trajectories by enforcement scenario", fontsize=12, y=1.01)
     fig.tight_layout()

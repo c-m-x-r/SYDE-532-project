@@ -48,11 +48,21 @@ def main():
     # default uses our paper_protocol_*.csv.
     use_bs = "--bs" in args
     args = [a for a in args if a != "--bs"]
+
+    # --dir <subdir>: look in results/<subdir>/ instead of results/
+    results_dir = RESULTS_DIR
+    if "--dir" in args:
+        idx = args.index("--dir")
+        subdir = args[idx + 1]
+        results_dir = RESULTS_DIR / subdir
+        args = args[:idx] + args[idx + 2:]
+
     prefix = "bs_protocol" if use_bs else "paper_protocol"
-    # BehaviorSpace protocol: all 100 displayed years are under the scenario
-    # (no lax phase shown); regulation_year=0 means no transition marker needed.
+    # BehaviorSpace protocol output contains 50 burn-in years (ticks 0-49,
+    # S-params=0, lax M/F — all scenarios identical) followed by 50 enforcement
+    # years (ticks 50-99).  Regulation line at tick 50 matches Figure 5.
     display_slice   = (0, 100)
-    regulation_year = 0 if use_bs else 50
+    regulation_year = 50
 
     requested = [a.lower() for a in args] if args else None
 
@@ -60,7 +70,7 @@ def main():
     for name, label in PANEL_LABELS.items():
         if requested and name not in requested:
             continue
-        csv = RESULTS_DIR / f"{prefix}_{name}.csv"
+        csv = results_dir / f"{prefix}_{name}.csv"
         if csv.exists():
             df = load_tidy(str(csv))
             # For multi-PV runs, default to pv=0 slice for the main figure
@@ -76,7 +86,8 @@ def main():
         sys.exit(1)
 
     FIGS_DIR.mkdir(exist_ok=True)
-    tag = ("bs_" if use_bs else "") + ("_".join(requested) if requested else "all")
+    dir_tag = f"{results_dir.name}_" if results_dir != RESULTS_DIR else ""
+    tag = dir_tag + ("bs_" if use_bs else "") + ("_".join(requested) if requested else "all")
     out = FIGS_DIR / f"figure5_{tag}.png"
     plot_figure5(case_dfs, output_path=out, display_slice=display_slice,
                  regulation_year=regulation_year)

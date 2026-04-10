@@ -1,18 +1,16 @@
 """
 run_paper.py
+Re-implementation of the paper's protocol (Castilla-Rho et al. 2017).
 
-Faithful Python re-implementation of the original BehaviorSpace experiments
-(SC_MDB_50, SC_CV_50, SC_PUNJAB_50) from Castilla-Rho et al. 2017.
+Protocol (matching Figure 5 exactly):
+  1. SETUP-EXPERIMENT initializes farmers with random B,P ∈ [0,1]
+  2. 50-year lax management (M=10%, F=10%, S-params=0) where agents evolve strategy
+  3. reset-ticks (TS lists retain 50 lax entries, NOT cleared; year reset to 0) ## what is this?
+  4. Activate enforcement: restore S-enforcement-cost, S-reputation, set M/F/scenario
+  5. 50-year enforcement measurement under scenario M/F
+  6. Collect all 100 years: ticks 0–49 = lax baseline, ticks 50–99 = enforcement response
 
-Protocol mirrors the embedded BehaviorSpace XML exactly:
-  1. SETUP-EXPERIMENT clears all globals via `ca` → S-params reset to 0
-  2. 100-year hidden burn-in under lax conditions (M=0.1, F=0.1, S-params=0)
-  3. reset-ticks (TS lists retain 100 burn-in entries, NOT cleared)
-  4. Restore actual cultural params (S-enforcement-cost, S-reputation)
-  5. 100-year measurement under scenario M/F
-  6. Collect only TS[-100:] — the measurement period
-
-Output ticks 0–99 are all under the enforcement scenario (no lax phase shown).
+Output displays full 100-year evolution (years 0–100 with regulation line at year 50).
 Plot with: .venv/bin/python plot_panels.py --bs <case>
 
 Usage:
@@ -34,7 +32,7 @@ PROJECT_DIR  = Path(__file__).parent
 MODEL_PATH   = str(PROJECT_DIR / "model/Groundwater_Commons_Game.nlogo")
 NETLOGO_HOME = str(PROJECT_DIR / "NetLogo-6.4.0-64")
 RESULTS_DIR  = PROJECT_DIR / "results"
-WORKER_DIR   = RESULTS_DIR / "workers_bs"
+# WORKER_DIR is set per-case in main() to avoid collisions when two cases run in parallel
 
 MAX_WORKERS  = 8
 
@@ -92,8 +90,15 @@ METRICS = [
     "TS-total-breaches",
 ]
 
-BURN_IN_YEARS    = 100   # hidden; matches `repeat 100 [go]` in BehaviorSpace setup
-MEASURE_YEARS    = 100   # measurement period; matches `<timeLimit steps="100"/>`
+BURN_IN_YEARS    = 50    # 50-year lax period; agents visible from random initialization
+MEASURE_YEARS    = 50    # 50-year enforcement measurement period
+
+# Output includes all years from both phases.
+# Figure 5: ticks 0–49 = lax baseline (S-params=0, M=10%, F=10%)
+#           ticks 50–99 = enforcement response (S-params active, M/F/scenario vary)
+# Regulation line drawn at tick 50.
+DISPLAY_BURNIN   = 50    # Display all 50 lax years (agents visible from random init)
+DISPLAY_MEASURE  = 50    # Display all 50 enforcement years
 
 
 def _patch_pynetlogo():
@@ -115,22 +120,20 @@ def _patch_pynetlogo():
 
 def run_batch(args):
     """
-    Worker: runs a sequential batch of (scenario, M, F, rep, seed) tasks.
+    Worker: runs a sequential batch of (scenario, M, F, rep, seed, n_reps) tasks.
 
-    Protocol per run — mirrors the BehaviorSpace setup block exactly:
-      1. Set S-enforcement-cost and S-reputation to their SCENARIO values BEFORE
-         SETUP-EXPERIMENT (these are the `old-*` values that get saved, then
-         SETUP-EXPERIMENT clears them to 0 via ca, then they are restored).
-      2. SETUP-EXPERIMENT  →  clears all globals (S-params now 0)
-      3. Set lax burn-in params (M=0.1, F=0.1, voluntary=0, etc.)
-      4. Set economy
-      5. Run BURN_IN_YEARS  →  TS lists accumulate 100 entries (S-params=0)
-      6. reset-ticks / set year 0  (TS lists NOT cleared)
-      7. Restore S-enforcement-cost, S-reputation to actual values
-      8. Run MEASURE_YEARS  →  TS lists accumulate 100 more entries
-      9. Collect TS lists (200 items); take last 100 = measurement period
+    Protocol per run — matches the paper's protocol (Castilla-Rho et al. 2017):
+      1. SETUP-EXPERIMENT clears all globals via ca, initializes farmers with random B,P
+      2. Set lax management params (M=0.1, F=0.1, S-params=0, voluntary=0, etc.)
+      3. Set economy
+      4. Run BURN_IN_YEARS (50) under lax conditions  →  TS lists accumulate 50 entries
+      5. reset-ticks / set year 0  (TS lists NOT cleared)
+      6. Restore actual S-enforcement-cost and S-reputation values
+      7. Update M and F to enforcement scenario values
+      8. Run MEASURE_YEARS (50) under enforcement  →  TS lists accumulate 50 more entries
+      9. Collect TS lists (100 items total): [0:50] = lax, [50:100] = enforcement response
     """
-    worker_id, tasks, case_params = args
+    worker_id, tasks, case_params, worker_dir = args
     _patch_pynetlogo()
     import pynetlogo
 
@@ -148,7 +151,7 @@ def run_batch(args):
             nl.command("SETUP-EXPERIMENT")
             # After this: S-enforcement-cost=0, S-reputation=0 (cleared by ca)
 
-            # --- Steps 3–4: set burn-in params (lax, no cultural params) ---
+            # --- Lax phase params (S-params remain 0 after ca, matching BehaviorSpace) ---
             nl.command("set pumping-cap 0.2")
             nl.command("set max-monitoring-capacity 0.1")
             nl.command("set fine-magnitude 0.1")
@@ -159,47 +162,51 @@ def run_batch(args):
             nl.command('set enforcement-strategy "random"')
             nl.command("set graduated-sanctions? false")
             nl.command(f'set economy? "{case_params["economy"]}"')
-            # S-enforcement-cost and S-reputation remain 0 (default after ca)
+            # S-enforcement-cost and S-reputation remain 0 (cleared by ca in SETUP-EXPERIMENT)
 
-            # --- Step 5: hidden burn-in ---
+            # --- Phase 1: 50-year lax period ---
             for _ in range(BURN_IN_YEARS):
                 nl.command("go")
-            # TS lists now have BURN_IN_YEARS entries each
 
-            # --- Step 6: reset-ticks (does NOT clear TS lists) ---
+            # --- Transition: activate enforcement scenario and cultural params ---
             nl.command("reset-ticks")
             nl.command("set year 0")
-
-            # --- Step 7: restore actual cultural + scenario params ---
             nl.command(f"set S-enforcement-cost {case_params['S-enforcement-cost']}")
             nl.command(f"set S-reputation {case_params['S-reputation']}")
             nl.command(f"set max-monitoring-capacity {M}")
             nl.command(f"set fine-magnitude {F}")
-            # pumping-cap, voluntary-compliance, etc. already set above and unchanged
+            nl.command('set enforcement-strategy "risk-based"')
 
-            # --- Step 8: measurement period ---
+            # --- Phase 2: 50-year enforcement measurement ---
             for _ in range(MEASURE_YEARS):
                 nl.command("go")
-            # TS lists now have BURN_IN_YEARS + MEASURE_YEARS entries
 
-            # --- Step 9: collect last MEASURE_YEARS entries (measurement period) ---
+            # --- Step 9: collect output window ---
+            # Full TS list: indices 0..BURN_IN_YEARS-1  = lax phase (visible from random init)
+            #               indices BURN_IN_YEARS..end   = enforcement phase response
+            # Output: all DISPLAY_BURNIN lax years + all DISPLAY_MEASURE enforcement years.
+            # Total length = 100 years; regulation transition at tick 50.
             ts = {}
             for m in METRICS:
                 full_list = list(nl.report(m))
-                # Take only the measurement period (last MEASURE_YEARS values)
-                ts[m] = full_list[-MEASURE_YEARS:]
+                lax_slice        = full_list[0 : BURN_IN_YEARS]
+                enforcement_slice = full_list[BURN_IN_YEARS : BURN_IN_YEARS + MEASURE_YEARS]
+                ts[m] = lax_slice + enforcement_slice   # length = 50 + 50 = 100
 
             run_num = SCENARIOS.index((scenario, M, F)) * n_reps + rep
-            for yr in range(MEASURE_YEARS):
+            n_ticks = DISPLAY_BURNIN + DISPLAY_MEASURE
+            for yr in range(n_ticks):
                 row = {
                     "run":                     run_num,
                     "tick":                    yr,
+                    "phase":                   "burnin" if yr < DISPLAY_BURNIN else "enforcement",
                     "scenario":                scenario,
                     "max-monitoring-capacity": M,
                     "fine-magnitude":          F,
                     "S-enforcement-cost":      case_params["S-enforcement-cost"],
                     "S-reputation":            case_params["S-reputation"],
                     "pv-adoption-fraction":    0.0,
+                    "num-farmers":             case_params["num-farmers"],
                 }
                 for m in METRICS:
                     row[m] = ts[m][yr] if yr < len(ts[m]) else float("nan")
@@ -213,7 +220,7 @@ def run_batch(args):
 
     nl.kill_workspace()
 
-    out = WORKER_DIR / f"worker_{worker_id}.csv"
+    out = worker_dir / f"worker_{worker_id}.csv"
     pd.DataFrame(records).to_csv(out, index=False)
     return records
 
@@ -242,15 +249,17 @@ def main():
     n_reps      = args.reps
     n_workers   = min(args.workers, mp.cpu_count())
     output_csv  = str(RESULTS_DIR / f"bs_protocol_{args.case}.csv")
+    worker_dir  = RESULTS_DIR / f"workers_bs_{args.case}"
 
-    print(f"BehaviorSpace-faithful protocol")
+    print(f"Paper protocol (Castilla-Rho et al. 2017 Figure 5)")
     print(f"  Case:               {args.case}")
     print(f"  num-farmers:        {case_params['num-farmers']}")
     print(f"  economy:            {case_params['economy']}")
     print(f"  S-enforcement-cost: {case_params['S-enforcement-cost']}")
     print(f"  S-reputation:       {case_params['S-reputation']}")
-    print(f"  Burn-in years:      {BURN_IN_YEARS} (hidden, S-params=0)")
-    print(f"  Measurement years:  {MEASURE_YEARS} (all under scenario M/F)")
+    print(f"  Lax phase:          {BURN_IN_YEARS} years (M=10%, F=10%, S=0, agents visible)")
+    print(f"  Enforcement phase:  {MEASURE_YEARS} years (M/F/S vary by scenario)")
+    print(f"  Output:             {DISPLAY_BURNIN} + {DISPLAY_MEASURE} = 100 years (regulation line at year 50)")
     print(f"  Reps per scenario:  {n_reps}")
     print(f"  Workers:            {n_workers}")
 
@@ -262,14 +271,14 @@ def main():
 
     print(f"Tasks: {len(tasks)} runs | Workers: {n_workers}", flush=True)
 
-    WORKER_DIR.mkdir(parents=True, exist_ok=True)
-    for f in WORKER_DIR.glob("worker_*.csv"):
-        f.unlink()
+    worker_dir.mkdir(parents=True, exist_ok=True)
+    for f in worker_dir.glob("worker_*.csv"):
+        f.unlink(missing_ok=True)
 
     batches = [[] for _ in range(n_workers)]
     for i, task in enumerate(tasks):
         batches[i % n_workers].append(task)
-    worker_args = [(i, b, case_params) for i, b in enumerate(batches) if b]
+    worker_args = [(i, b, case_params, worker_dir) for i, b in enumerate(batches) if b]
 
     t0 = time.time()
     ctx = mp.get_context("fork")
@@ -280,15 +289,19 @@ def main():
         print(f"Pool error: {e}", flush=True)
         print("Collecting results from completed workers ...", flush=True)
 
-    parts = sorted(WORKER_DIR.glob("worker_*.csv"))
+    parts = sorted(worker_dir.glob("worker_*.csv"))
     print(f"\nFound {len(parts)}/{n_workers} worker result files", flush=True)
     df = pd.concat([pd.read_csv(p) for p in parts], ignore_index=True)
     df.to_csv(output_csv, index=False)
 
+    output_pkl = str(RESULTS_DIR / f"bs_protocol_{args.case}.pkl")
+    df.to_pickle(output_pkl)
+
     elapsed = time.time() - t0
     n_runs = df["run"].nunique()
-    print(f"Done: {n_runs} runs in {elapsed:.0f}s ({elapsed/n_runs:.1f}s/run) -> {output_csv}",
-          flush=True)
+    print(f"Done: {n_runs} runs in {elapsed:.0f}s ({elapsed/n_runs:.1f}s/run)", flush=True)
+    print(f"  CSV: {output_csv}", flush=True)
+    print(f"  PKL: {output_pkl}", flush=True)
     print(f"Plot:  .venv/bin/python plot_panels.py --bs {args.case}", flush=True)
 
 
