@@ -31,3 +31,6 @@ hs_err_pid*.log
 
 # Local working files
 etc/
+docs/
+helpers/
+.claude/
